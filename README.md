@@ -1,6 +1,5 @@
-**# Hades**
-
-HPR Flight Computer that is capable of dual parachute deployment, data logging, and optimal attitude and position determination.
+**Hades Description**
+Hades is a flight computer I created for my current and future flight computers. This flight computer will be capable of dual parachute deployment, optimal attitude and position determination, and data logging. I currently test this flight computer at home and will conduct a flight test in my HPR Lotus before pursuing my Level 2 NAR certification.
 
 **Specs:**
 - Teensy 4.1
@@ -23,9 +22,8 @@ HPR Flight Computer that is capable of dual parachute deployment, data logging, 
 
 
 
-**Iterations**
-
-Iterations for the flight computer are due to trying out new things with the components of the flight computer and to keep my mind fresh when stuck on different problems when working on my code. 
+**Iterations:**
+Iterations for the flight computer are due to trying out new things with the flight computer. Sometimes I also like to create a new version when stuck on problems to take a new and different approach to solving some of the problems I face while writing the code.
 Test - Individual Component Functionality Test
 V1 - Sensor Data Reading
 V2 - State Separation
