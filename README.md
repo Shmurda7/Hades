@@ -3,6 +3,12 @@
 **Hades Description**
 Hades is a flight computer I created for my current and future flight computers. This flight computer will be capable of dual parachute deployment, optimal attitude and position determination, and data logging. I currently test this flight computer at home and will conduct a flight test in my HPR Lotus before pursuing my Level 2 NAR certification.
 
+**Iterations:**
+Iterations for the flight computer are due to trying out new things with the flight computer. Sometimes I also like to create a new version when stuck on problems to take a new and different approach to solving some of the problems I face while writing the code.
+- Test - Individual Component Functionality Test
+- V1 - Sensor Data Reading
+- V2 - State Separation
+
 **Specs:**
 - Teensy 4.1
     -  https://www.pjrc.com/store/teensy41.html
@@ -22,10 +28,3 @@ Hades is a flight computer I created for my current and future flight computers.
 - Buck Converter
 - MOSFETS
 
-
-
-**Iterations:**
-Iterations for the flight computer are due to trying out new things with the flight computer. Sometimes I also like to create a new version when stuck on problems to take a new and different approach to solving some of the problems I face while writing the code.
-- Test - Individual Component Functionality Test
-- V1 - Sensor Data Reading
-- V2 - State Separation
