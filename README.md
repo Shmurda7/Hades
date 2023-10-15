@@ -1,8 +1,7 @@
-# Hades
+**# Hades**
 HPR Flight Computer that is capable of dual parachute deployment, data logging, and optimal attitude and position determination.
 
-
-Specs:
+**Specs:**
 - Teensy 4.1
     -  https://www.pjrc.com/store/teensy41.html
 - BMP 180
@@ -20,3 +19,11 @@ Specs:
 - Passive Buzzer
 - Buck Converter
 - MOSFETS
+
+
+
+**Iterations**
+These iterations for the flight computer are due to trying out new things with the components of the flight computer and to keep my mind fresh when stuck on different problems when working on my code. 
+Test - Individual Component Functionality Test
+V1 - Sensor Data Reading
+V2 - State Separation
