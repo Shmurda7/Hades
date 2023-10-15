@@ -26,6 +26,6 @@ Hades is a flight computer I created for my current and future flight computers.
 
 **Iterations:**
 Iterations for the flight computer are due to trying out new things with the flight computer. Sometimes I also like to create a new version when stuck on problems to take a new and different approach to solving some of the problems I face while writing the code.
-Test - Individual Component Functionality Test
-V1 - Sensor Data Reading
-V2 - State Separation
+- Test - Individual Component Functionality Test
+- V1 - Sensor Data Reading
+- V2 - State Separation
