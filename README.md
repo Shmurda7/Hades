@@ -1,3 +1,5 @@
+![image](https://github.com/Shmurda7/Hades/assets/95262279/33717f4a-1278-4ecc-85ac-3ec4bf004721)
+
 **Hades Description**
 Hades is a flight computer I created for my current and future flight computers. This flight computer will be capable of dual parachute deployment, optimal attitude and position determination, and data logging. I currently test this flight computer at home and will conduct a flight test in my HPR Lotus before pursuing my Level 2 NAR certification.
 
