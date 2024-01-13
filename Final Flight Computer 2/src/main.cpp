@@ -7,6 +7,7 @@
 #include <HardwareSerial.h>
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
+#include "KalmanFilter.h"
 
 MPU9250 imu(Wire, 0x68);
 Adafruit_BMP085 bmp;
@@ -15,6 +16,9 @@ TinyGPSPlus gps;
 int state;
 bool hasLaunched = false;
 bool haspressed = false;
+double gravity = 9.81;
+
+float roll_filtered = 0, pitch_filtered = 0, yaw_filtered = 0;
 
 // ------------ IMU Variables -------------- //
 // Accelerometer
@@ -42,11 +46,11 @@ static const int txPin = 1;
 SoftwareSerial ss(rxPin, txPin);
 
 // ----------- Hardware Pins --------------- //
-#define BUTTON_PIN 25
-#define BUZZER_PIN 26
-#define RED_LED_PIN 37
-#define WHITE_LED_PIN 38
-#define GREEN_LED_PIN 35
+#define BUTTON_PIN 23
+#define BUZZER_PIN 41
+#define RED_LED_PIN 6
+#define WHITE_LED_PIN 8
+#define GREEN_LED_PIN 4
 #define PYRO_1_PIN 56
 #define PYRO_2_PIN 57
 
@@ -76,11 +80,17 @@ double temp;
 int lpfGyr = 0.7; // need to tune low pass filter
 int lpfAcc = 0.9;
 int lpfMag = 0.4;
-double alpha = 0.93f;
+double alpha = 0.05f;
+
+float euler_roll_rate = 0, euler_pitch_rate = 0, euler_yaw_rate = 0;
+
 // Complimentary filter variables
 double accel_roll_angle = 0, accel_pitch_angle = 0, accel_yaw_angle;
 double mag_roll_angle = 0, mag_pitch_angle = 0, mag_yaw_angle = 0;
 double comp_roll_angle = 0, comp_pitch_angle = 0, comp_yaw_angle = 0;
+
+double comp_roll_angle_dos = 0, comp_pitch_angle_dos = 0;
+
 // Bias
 double bias_roll_rate, bias_pitch_rate, bias_yaw_rate;
 
@@ -88,7 +98,11 @@ double bias_roll_rate, bias_pitch_rate, bias_yaw_rate;
 float elapsedtime{0.0f};
 float currenttime{0.0f};
 float previoustime{0.0f};
-
+/*
+KalmanFilter kalmanRoll(0, 1, 0.01, 0.1);
+KalmanFilter kalmanPitch(0, 1, 0.01, 0.1);
+KalmanFilter kalmanYaw(0, 1, 0.01, 0.1);
+*/
 File myFile;
 
 // put function declarations here:
@@ -96,8 +110,10 @@ void flight();
 void launchdetect();
 void deploy();
 void protocol();
+void calibration();
 void startup();
 void datalogging();
+//void kalmanFilterUpdate(Eigen::MatrixXf& xk, Eigen::MatrixXf& P,const Eigen::MatrixXf& A, const Eigen::MatrixXf& H,const Eigen::MatrixXf& Q, const Eigen::MatrixXf& R,const Eigen::MatrixXf& zk);
 
 void setup() {
   
@@ -145,7 +161,7 @@ void setup() {
   }
   Serial.println("SD card initialized.");
   // Open the file
-  myFile = SD.open("Jan_first_Test_Data.txt", FILE_WRITE);
+  myFile = SD.open("Jan_Eleventh_Test_Data.txt", FILE_WRITE);
   if (myFile)
   {
     myFile.println(" ---------- Flight Data -----------");
@@ -157,8 +173,8 @@ void setup() {
   }
 
   startup();
+  //calibration();
   protocol();
-
 }
 
 void loop() {
@@ -177,9 +193,16 @@ void loop() {
   zmag = lpfMag * zmag + (1 - lpfMag) * imu.getMagZ_uT();
   i_temp = imu.getTemperature_C();
 
+  //right way according to phils lab
+  accel_roll_angle = atanf(yaccel / zaccel);
+  accel_pitch_angle = asinf(yaccel / gravity);
+  //might be wrong
+  /*
   accel_roll_angle = atan2(-xaccel, sqrt(pow(yaccel, 2) + pow(zaccel, 2))) * RAD_TO_DEG;
   accel_pitch_angle = atan2(yaccel, sqrt(pow(xaccel, 2) + pow(zaccel, 2))) * RAD_TO_DEG;
   accel_yaw_angle = atan2((sqrt(pow(xaccel, 2) + pow(yaccel, 2))), zaccel) * RAD_TO_DEG;
+  */
+
   mag_roll_angle = atan2(ymag, zmag);
   mag_pitch_angle = atan2(xmag, zmag);
   mag_yaw_angle = atan2(ymag, xmag);
@@ -188,14 +211,46 @@ void loop() {
   pitch_angle += (pitch_rate * elapsedtime);
   yaw_angle += (yaw_rate  * elapsedtime);
 
-  // Complimentary Filter w/ mag
-  comp_roll_angle = alpha * (roll_angle + roll_rate * elapsedtime) + (1 - alpha) * mag_roll_angle;
-  comp_pitch_angle = alpha * (pitch_angle + pitch_rate * elapsedtime) + (1 - alpha) * mag_pitch_angle;
-  comp_yaw_angle = alpha * (yaw_angle + yaw_rate * elapsedtime) + (1 - alpha) * mag_yaw_angle;
+  // https://control.asu.edu/Classes/MMAE441/Aircraft/441Lecture9.pdf
 
+  euler_roll_rate = roll_rate + tanf(comp_roll_angle)*sinf(comp_pitch_angle)*pitch_rate + cosf(comp_pitch_angle)*tanf(comp_roll_angle)*yaw_rate;
+  euler_pitch_rate = 0 + cosf(comp_pitch_angle) - sinf(comp_pitch_angle);
+  euler_yaw_rate = 0 + sinf(comp_pitch_angle)*(1/cosf(comp_roll_angle))*pitch_rate + cosf(comp_pitch_angle)*(1/cosf(comp_roll_angle))*yaw_rate;
+
+  // Complimentary Filter phils lab
+  //flipped from original bc i had implemented it wrong in the first place 
+  comp_roll_angle = alpha * mag_roll_angle + (1 - alpha) * (comp_roll_angle + roll_rate * (elapsedtime));
+  comp_pitch_angle = alpha * mag_pitch_angle + (1 - alpha) *(comp_pitch_angle + pitch_rate * (elapsedtime));
+  comp_yaw_angle = alpha * mag_yaw_angle + (1 - alpha) * (comp_yaw_angle + yaw_rate * (elapsedtime));
+  // So a slight different between the roll and pitch angles theres a -7 degs for roll and -6 deg for pitch, double check 
+  //with testing to see which is more true and then thats what i'll choose or can change the gain
+  comp_roll_angle_dos = alpha * accel_roll_angle + (1 - alpha) * (comp_roll_angle + roll_rate * (elapsedtime));
+  comp_pitch_angle_dos = alpha * accel_pitch_angle + (1 - alpha) *(comp_pitch_angle + pitch_rate * (elapsedtime));
+  
+  //Original Comp Filter 
+  /*
+  comp_roll_angle = (1 - alpha) * mag_roll_angle + alpha * (roll_angle + roll_rate * elapsedtime);
+  comp_pitch_angle = (1 - alpha) * mag_pitch_angle + alpha *(pitch_angle + pitch_rate * elapsedtime);
+  comp_yaw_angle = (1 - alpha) * mag_yaw_angle + alpha * (yaw_angle + yaw_rate * elapsedtime);
+  */  
   //complimentary filter for position with x, and xdot from accel
   //then use gps similar to mag above, but make sure to convert the position unit stuff
   //so essentially it'll be just converting x and y position to lat and long
+
+  //ok section for combining GPS and accelerometer data for postion and velocity
+  // I don't think my gps and can altitude
+
+  // Kalman Filter
+   // Update Kalman filter with accelerometer measurements
+   /*
+  roll_filtered = kalmanRoll.update(accel_roll_angle* RAD_TO_DEG);
+  pitch_filtered = kalmanPitch.update(accel_pitch_angle* RAD_TO_DEG);
+  yaw_filtered = kalmanYaw.update(mag_yaw_angle* RAD_TO_DEG);
+  */
+  //gps_pos_x
+  //gps_pos_y
+  //gps_pos_z
+
 
   // BMP
   b_temp = bmp.readTemperature();
@@ -227,7 +282,6 @@ void loop() {
 
   if (hasLaunched) {
     flight();
-    datalogging();
   }
   
   previoustime = currenttime;
@@ -235,56 +289,123 @@ void loop() {
 
 void datalogging(){
   // Data Logging Part
-  myFile = SD.open("Jan_first_Test_Data.txt", FILE_WRITE);
+  myFile = SD.open("Jan_Eleventh_Test_Data.txt", FILE_WRITE);
   if (myFile)
   {
+    // Data Stuff
+    // s
     myFile.print(" time: ");
-    myFile.print(currenttime / 1000, 3);
+    myFile.print(currenttime/1000, 3);
     myFile.print(",");
+    myFile.print(" Unfiltered Data: ");
+    // m/s2
+    myFile.print(" ax: ");
+    myFile.print(imu.getAccelBiasX_mss());
+    myFile.print(",");
+    myFile.print(" ay: ");
+    myFile.print(imu.getAccelBiasX_mss());
+    myFile.print(",");
+    myFile.print(" az: ");
+    myFile.print(imu.getAccelBiasX_mss());
+    myFile.print(",");
+    // rad/s
+    myFile.print(" gx: ");
+    myFile.print(imu.getGyroBiasX_rads());
+    myFile.print(",");
+    myFile.print(" gy: ");
+    myFile.print(imu.getGyroBiasY_rads());
+    myFile.print(",");
+    myFile.print(" gz: ");
+    myFile.print(imu.getGyroBiasZ_rads());
+    myFile.print(",");
+    // uT
+    myFile.print(" mx: ");
+    myFile.print(imu.getMagX_uT());
+    myFile.print(",");
+    myFile.print(" my: ");
+    myFile.print(imu.getMagY_uT());
+    myFile.print(",");
+    myFile.print(" mz: ");
+    myFile.print(imu.getMagZ_uT());
+    myFile.print(",");
+    // rad
+    myFile.print(" roll: ");
+    myFile.print(roll_angle);
+    myFile.print(",");
+    myFile.print(" pitch: ");
+    myFile.print(pitch_angle);
+    myFile.print(",");
+    myFile.print(" yaw: ");
+    myFile.print(yaw_angle);
+    myFile.print(",");
+    // Celcius
+    myFile.print("IMU_Temp: ");
+    myFile.print(i_temp);
+    myFile.print(",");
+    myFile.print("Baro_Temp: ");
+    myFile.print(b_temp);
+    myFile.print(",");
+    // psi
+    myFile.print("Pres: ");
+    myFile.print(pres);
+    myFile.print(",");
+    // Filtered Data
+    myFile.print(" Filtered Data: ");
+    // m/s2
     myFile.print(" ax: ");
     myFile.print(xaccel);
     myFile.print(",");
     myFile.print(" ay: ");
-    myFile.print(",");
     myFile.print(yaccel);
+    myFile.print(",");
     myFile.print(" az: ");
     myFile.print(zaccel);
     myFile.print(",");
+    // deg/s
     myFile.print(" gx: ");
-    myFile.print(roll_rate* RAD_TO_DEG);
+    myFile.print(roll_rate*RAD_TO_DEG);
     myFile.print(",");
     myFile.print(" gy: ");
-    myFile.print(pitch_rate* RAD_TO_DEG);
+    myFile.print(pitch_rate*RAD_TO_DEG);
     myFile.print(",");
     myFile.print(" gz: ");
-    myFile.print(yaw_rate* RAD_TO_DEG);
+    myFile.print(yaw_rate*RAD_TO_DEG);
     myFile.print(",");
+    // uT
+    myFile.print(" mx: ");
+    myFile.print(xmag);
+    myFile.print(",");
+    myFile.print(" my: ");
+    myFile.print(ymag);
+    myFile.print(",");
+    myFile.print(" mz: ");
+    myFile.print(zmag);
+    myFile.print(",");
+    // deg
     myFile.print(" phi: ");
-    myFile.print(comp_roll_angle* RAD_TO_DEG);
+    myFile.print(comp_roll_angle*RAD_TO_DEG);
     myFile.print(",");
     myFile.print(" theta: ");
-    myFile.print(comp_pitch_angle* RAD_TO_DEG);
+    myFile.print(comp_pitch_angle*RAD_TO_DEG);
     myFile.print(",");
     myFile.print(" psi: ");
-    myFile.print(comp_yaw_angle* RAD_TO_DEG);
+    myFile.print(comp_yaw_angle*RAD_TO_DEG);
     myFile.print(",");
-
-    // Reads Temperature
+    // Reads Temperature (F)
     myFile.print(" Temp: ");
     myFile.print(temp);
     myFile.print(",");
-    
+    // Reads Altitude (m)
     myFile.print(" Alt: ");
     myFile.print(currentaltitude);
     myFile.print(",");
-
-    // Reads Pressure
+    // Reads Pressure (psi)
     myFile.print(" Pres: ");
     myFile.print(pres);
     myFile.print(",");
-// Reads GPS Data
-    // if the encode function returns true, it means new GPS data is available
-    // you can now access the parsed GPS data using the TinyGPS++ library functions
+    // Reads GPS Data
+      // if the encode function returns true, it means new GPS data is available
+      // you can now access the parsed GPS data using the TinyGPS++ library functions
     myFile.print(" Lat: ");
     myFile.print(gps.location.lat(), 6);
     myFile.print(",");
@@ -296,6 +417,7 @@ void datalogging(){
     myFile.close();
   }
 }
+
 
 void _setColor()
 {
@@ -352,126 +474,78 @@ void startup()
     setColor(255, 0, 255, 1800);
 }
 
+void calibration(){
+  // Calibration Section
+  Serial.println("Calibration Beginning");
+  delay(1000);
+  Serial.println("Calibrating Accel & Gyro");
+  delay(2000);
+  imu.calibrateAccel();
+  imu.calibrateGyro();
+
+  Serial.println("Calibrating Mag");
+  delay(2000);
+  imu.calibrateMag();
+}
+
 void protocol(){
   state = 0;
   delay(750);
   Serial.println("Flight Computer Ready!");
   delay(500);
-  digitalWrite(GREEN_LED_PIN, HIGH);
 }
 // put function definitions here:
 void flight() {
 
-  digitalWrite(RED_LED_PIN, LOW);
-  digitalWrite(WHITE_LED_PIN, LOW);
-  digitalWrite(GREEN_LED_PIN, LOW);
-
   Serial.print("t: ");
-  Serial.print(currenttime / 1000, 3);
-  Serial.print("\t");
-
+  Serial.print(currenttime/1000, 3);
   // Complimentary Filter
-  Serial.print(" ax: ");
+  
+  Serial.print(", ax: ");
   Serial.print(xaccel, 1);
-  Serial.print("\t");
-  Serial.print(" ay: ");
+  Serial.print(", ay: ");
   Serial.print(yaccel, 1);
-  Serial.print("\t");
-  Serial.print(" az: ");
+  Serial.print(", az: ");
   Serial.print(zaccel, 1);
-  Serial.print("\t");
+  
+  Serial.print(",");
   Serial.print(" roll: ");
-  Serial.print((comp_roll_angle * RAD_TO_DEG), 1);
-  Serial.print("\t");
+  Serial.print((comp_roll_angle * RAD_TO_DEG), 3);
+  Serial.print(",");
   Serial.print(" pitch: ");
-  Serial.print((comp_pitch_angle * RAD_TO_DEG), 1);
-  Serial.print("\t");
+  Serial.print((comp_pitch_angle * RAD_TO_DEG), 3);
+  Serial.print(",");
   Serial.print(" yaw: ");
-  Serial.print((comp_yaw_angle * RAD_TO_DEG), 1);
-  Serial.print("\t");
-  Serial.print(" gx: ");
-  Serial.print(roll_rate * RAD_TO_DEG, 1);
-  Serial.print("\t");
-  Serial.print(" gy: ");
-  Serial.print(pitch_rate * RAD_TO_DEG, 1);
-  Serial.print("\t");
-  Serial.print(" gz: ");
-  Serial.print(yaw_rate * RAD_TO_DEG, 1);
-  //Serial.print("\t");
-  //Serial.print(" T: ");
-  //Serial.print(temp, 2);
-  Serial.print("\t");
-  Serial.print(" Alt: ");
-  Serial.print(currentaltitude, 1);
-  //Serial.print("\t");
-  //Serial.print(" Spres: ");
-  //Serial.print(sealevelpres/6895, 4);
-  Serial.print("\t");
-  Serial.print(" pres: ");
-  Serial.print(pres, 1);
-  Serial.print(" Lat: ");
-  Serial.print(gps.location.lat(), 2);
-  Serial.print(" Long: ");
-  Serial.print(gps.location.lng(), 2);
-  Serial.print(" # of Sats: ");
-  Serial.println(gps.satellites.value());
+  Serial.print((comp_yaw_angle * RAD_TO_DEG), 3);
 
-  float currentaltitude = bmp.readAltitude(sealevelpres) - initialaltitude;
-  if (currentaltitude > maxaltitude)
-  {
-    maxaltitude = currentaltitude;
-  }
-
-  if (maxaltitude > currentaltitude + 15)
-  {
-    Serial.println("---------");
-    Serial.println("---------");
-    Serial.println("parachute!");
-    Serial.println("---------");
-    Serial.println("---------");
-    deploy();
-  }
-}
-
-
-void launchdetect()
-{
-  float speed = yaccel;
-
-  if (state == 0 && speed > 13)
-  {
-    // Default set to 60m/s^2
-    state++;
-  }
-
-  if (state == 1 && !hasLaunched)
-  {
-    Serial.println("---------");
-    Serial.println("---------");
-    Serial.println("launched!");
-    Serial.println("---------");
-    Serial.println("---------");
-    hasLaunched = true;
-    //flight();
-  }
-}
-
-void deploy()
-{
-  delay(5000);
-  state++;
-  while (state == 2)
-  {
-    digitalWrite(RED_LED_PIN, HIGH);
-    digitalWrite(WHITE_LED_PIN, HIGH);
-    digitalWrite(GREEN_LED_PIN, HIGH);
-    tone(BUZZER_PIN, 2000, 500);
-    delay(100);
-  }
+  Serial.print(", mx: ");
+  Serial.print(xmag, 1);
+  Serial.print(", my: ");
+  Serial.print(ymag, 1);
+  Serial.print(", mz: ");
+  Serial.print(zmag, 1);
+  /*
+  Serial.print(",");
+  Serial.print(" roll: ");
+  Serial.print((comp_roll_angle_dos * RAD_TO_DEG), 3);
+  */
 }
 
 // for tomorrow
 // Data Logging
 // Initilization/Calibration
 // Include GPS
+/*
+void kalmanFilterUpdate(Eigen::MatrixXf& xk, Eigen::MatrixXf& P,const Eigen::MatrixXf& A, const Eigen::MatrixXf& H,const Eigen::MatrixXf& Q, const Eigen::MatrixXf& R,const Eigen::MatrixXf& zk)
+{
+    // Prediction Step
+    Eigen::MatrixXf xp = A * xk;
+    Eigen::MatrixXf Pp = A * P * A.transpose() + Q;
 
+    // Update Step
+    Eigen::MatrixXf X = H * Pp * H.transpose() + R;
+    Eigen::MatrixXf K = Pp * H.transpose() * X.inverse();
+    xk = xp + K * (zk - H * xp);
+    P = Pp - K * H * Pp;
+}
+*/
