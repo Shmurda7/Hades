@@ -8,6 +8,12 @@
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
 #include "KalmanFilter.h"
+#include "eigen.h"      // Calls main Eigen matrix class library
+#include <Eigen/LU>   
+#ifdef abs
+#undef abs
+#endif
+using namespace Eigen;
 
 MPU9250 imu(Wire, 0x68);
 Adafruit_BMP085 bmp;
@@ -535,17 +541,3 @@ void flight() {
 // Data Logging
 // Initilization/Calibration
 // Include GPS
-/*
-void kalmanFilterUpdate(Eigen::MatrixXf& xk, Eigen::MatrixXf& P,const Eigen::MatrixXf& A, const Eigen::MatrixXf& H,const Eigen::MatrixXf& Q, const Eigen::MatrixXf& R,const Eigen::MatrixXf& zk)
-{
-    // Prediction Step
-    Eigen::MatrixXf xp = A * xk;
-    Eigen::MatrixXf Pp = A * P * A.transpose() + Q;
-
-    // Update Step
-    Eigen::MatrixXf X = H * Pp * H.transpose() + R;
-    Eigen::MatrixXf K = Pp * H.transpose() * X.inverse();
-    xk = xp + K * (zk - H * xp);
-    P = Pp - K * H * Pp;
-}
-*/
